@@ -21,7 +21,10 @@
     "endowment:rpc": {
       "dapps": true,
       "snaps": false
-    }
+    },
+    "endowment:lifecycle-hooks": {},
+    "endowment:network-access": {},
+    "snap_manageState": {}
   },
   "manifestVersion": "0.1"
 }
