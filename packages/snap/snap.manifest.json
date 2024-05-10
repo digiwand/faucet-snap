@@ -1,13 +1,13 @@
 {
   "version": "0.1.0",
   "description": "An example Snap written in TypeScript.",
-  "proposedName": "TypeScript Example",
+  "proposedName": "Faucet Snap",
   "repository": {
     "type": "git",
     "url": "https://github.com/MetaMask/template-snap-monorepo.git"
   },
   "source": {
-    "shasum": "TwVBeJ/PL4uARBEFZmgJukYd3XWyTbilkOPhtdg+GvU=",
+    "shasum": "QdOIR1GMP+5hOs+dyi0OrjVmuK5eTwe47SGReZIoh2k=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",

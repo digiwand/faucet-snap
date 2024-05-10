@@ -5,6 +5,7 @@ import {
   InstallFlaskButton,
   ReconnectButton,
   SendHelloButton,
+  SyncButton,
   Card,
 } from '../components';
 import { defaultSnapOrigin } from '../config';
@@ -114,6 +115,10 @@ const Index = () => {
     await invokeSnap({ method: 'hello' });
   };
 
+  const handleSyncClick = async () => {
+    await invokeSnap({ method: 'faucet' });
+  };
+
   return (
     <Container>
       <Heading>
@@ -171,6 +176,22 @@ const Index = () => {
             disabled={!installedSnap}
           />
         )}
+        <Card
+          content={{
+            title: 'Chainstack Faucet',
+            description:
+              'Add your API key to the snap and receive up to 0.05 ETH in funds from the Chainstack Faucet.',
+            button: (
+              <SyncButton onClick={handleSyncClick} disabled={!installedSnap} />
+            ),
+          }}
+          disabled={!installedSnap}
+          fullWidth={
+            isMetaMaskReady &&
+            Boolean(installedSnap) &&
+            !shouldDisplayReconnectButton(installedSnap)
+          }
+        />
         <Card
           content={{
             title: 'Send Hello message',

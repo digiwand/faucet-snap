@@ -1,5 +1,5 @@
 import type { OnRpcRequestHandler } from '@metamask/snaps-sdk';
-import { panel, text } from '@metamask/snaps-sdk';
+import { heading, panel, text } from '@metamask/snaps-sdk';
 
 /**
  * Handle incoming JSON-RPC requests, sent through `wallet_invokeSnap`.
@@ -30,6 +30,27 @@ export const onRpcRequest: OnRpcRequestHandler = async ({
           ]),
         },
       });
+    case 'faucet': {
+      const interfaceId = await snap.request({
+        method: 'snap_createInterface',
+        params: {
+          ui: panel([
+            heading('Chainstack Snap'),
+            text(
+              'Enter your public API key to receive up to 0.05 testnet ETH from the Chainstack Faucet.',
+            ),
+          ]),
+        },
+      });
+
+      return snap.request({
+        method: 'snap_dialog',
+        params: {
+          type: 'prompt',
+          id: interfaceId,
+        },
+      });
+    }
     default:
       throw new Error('Method not found.');
   }
