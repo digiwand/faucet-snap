@@ -4,15 +4,44 @@ import type {
   OnRpcRequestHandler,
   OnUserInputHandler,
 } from '@metamask/snaps-sdk';
-import { UserInputEventType, heading, panel, text } from '@metamask/snaps-sdk';
+import {
+  ManageStateOperation,
+  UserInputEventType,
+  heading,
+  input,
+  panel,
+  text,
+} from '@metamask/snaps-sdk';
 
 const fetchChainStack = async (apiKey: string, address: string) => {
-  return fetch('https://api.chainstack.com/v1/faucet/sepolia', {
+  const options = {
     body: JSON.stringify({ address }),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      accept: 'application/json',
+    },
+  };
+
+  console.log('fetchChainStack', options);
+  return await fetch('https://api.chainstack.com/v1/faucet/sepolia', options);
+};
+
+const createInputApiKeyInterface = async () => {
+  return await snap.request({
+    method: 'snap_createInterface',
+    params: {
+      ui: panel([
+        heading('Chainstack Snap'),
+        text(
+          'Enter your public API key to receive up to 0.5 testnet ETH from the Chainstack Faucet.',
+        ),
+        input({
+          name: 'api-key-input',
+          placeholder: 'Enter your public API key here',
+        }),
+      ]),
     },
   });
 };
@@ -27,40 +56,27 @@ const fetchChainStack = async (apiKey: string, address: string) => {
  * @see https://docs.metamask.io/snaps/reference/exports/#oninstall
  */
 export const onInstall: OnInstallHandler = async () => {
-  const interfaceId = await snap.request({
-    method: 'snap_createInterface',
-    params: {
-      ui: panel([
-        heading('Chainstack Snap'),
-        text(
-          'Enter your public API key to receive up to 0.5 testnet ETH from the Chainstack Faucet.',
-        ),
-      ]),
-    },
-  });
+  const interfaceId = await createInputApiKeyInterface();
 
-  return snap.request({
+  await snap.request({
     method: 'snap_dialog',
     params: {
-      type: 'prompt',
+      type: 'alert',
       id: interfaceId,
     },
   });
 };
 
 export const onUserInput: OnUserInputHandler = async ({ event }) => {
-  console.log('User input event', event);
-  // Not sure about this line
-  if (event.type === UserInputEventType.InputChangeEvent) {
-    console.log('The submitted values are', event.value);
-
-    const apiKey = event.value;
-
+  if (
+    event.type === UserInputEventType.InputChangeEvent &&
+    event.name === 'api-key-input'
+  ) {
     await snap.request({
       method: 'snap_manageState',
       params: {
-        operation: 'update',
-        newState: { apiKey },
+        operation: ManageStateOperation.UpdateState,
+        newState: { apiKey: event.value },
       },
     });
   }
@@ -75,14 +91,12 @@ export const onUserInput: OnUserInputHandler = async ({ event }) => {
  * @throws If the request method is not valid for this snap.
  */
 export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
-  console.log('onRpcRequest', request.method);
   switch (request.method) {
     case 'sendETH': {
       try {
-        console.log('sendETH request', request.params);
         const persistedData = await snap.request({
           method: 'snap_manageState',
-          params: { operation: 'get' },
+          params: { operation: ManageStateOperation.GetState },
         });
 
         if (!persistedData) {
@@ -94,6 +108,8 @@ export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
 
         const response = await fetchChainStack(apiKey, address);
 
+        const responseJson = await response.json();
+
         if (response.ok) {
           return snap.request({
             method: 'snap_dialog',
@@ -102,7 +118,8 @@ export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
               content: panel([
                 heading('Chainstack Snap'),
                 text(
-                  'The transaction was successful. You should receive the testnet ETH shortly.',
+                  // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                  `The transaction was successful. You should receive ${responseJson.amountSent} SepoliaETH shortly. Check the transaction here - ${responseJson.transaction}`,
                 ),
               ]),
             },
@@ -115,20 +132,25 @@ export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
             type: 'alert',
             content: panel([
               heading('Chainstack Snap'),
-              text(
-                'The transaction failed. Please check your API key and try again.',
-              ),
+              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+              text(`The transaction failed. ${responseJson?.message}`),
             ]),
           },
         });
       } catch (error) {
+        console.error('sendETH error:', error);
         return snap.request({
           method: 'snap_dialog',
           params: {
             type: 'alert',
             content: panel([
               heading('Chainstack Snap'),
-              text('An error occurred. Please try again later.'),
+              text(
+                `An error occurred. Please try again later. ${
+                  // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                  (error as any)?.message
+                }`,
+              ),
             ]),
           },
         });
