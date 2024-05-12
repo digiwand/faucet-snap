@@ -5,13 +5,18 @@ import type {
   OnUserInputHandler,
 } from '@metamask/snaps-sdk';
 import {
-  ManageStateOperation,
   UserInputEventType,
+  button,
   heading,
   input,
   panel,
+  spinner,
   text,
+  address as addressComponent,
+  row,
 } from '@metamask/snaps-sdk';
+
+import { getCurrentState, patchState } from './utils';
 
 const fetchChainStack = async (apiKey: string, address: string) => {
   const options = {
@@ -24,8 +29,26 @@ const fetchChainStack = async (apiKey: string, address: string) => {
     },
   };
 
-  console.log('fetchChainStack', options);
   return await fetch('https://api.chainstack.com/v1/faucet/sepolia', options);
+};
+
+const getApiKeyAndAddressFromState = async () => {
+  const persistedData = await getCurrentState();
+
+  const { apiKey, sendETHAddress } = persistedData as {
+    apiKey: string;
+    sendETHAddress: string;
+  };
+
+  if (!apiKey) {
+    throw new Error('API key not found.');
+  }
+
+  if (!sendETHAddress) {
+    throw new Error('Address not found.');
+  }
+
+  return { apiKey, sendETHAddress };
 };
 
 const createInputApiKeyInterface = async () => {
@@ -67,18 +90,80 @@ export const onInstall: OnInstallHandler = async () => {
   });
 };
 
-export const onUserInput: OnUserInputHandler = async ({ event }) => {
+export const onUserInput: OnUserInputHandler = async ({ id, event }) => {
   if (
     event.type === UserInputEventType.InputChangeEvent &&
     event.name === 'api-key-input'
   ) {
-    await snap.request({
-      method: 'snap_manageState',
-      params: {
-        operation: ManageStateOperation.UpdateState,
-        newState: { apiKey: event.value },
-      },
-    });
+    await patchState({ apiKey: event.value });
+  }
+
+  if (
+    event.type === UserInputEventType.ButtonClickEvent &&
+    event.name === 'send-it'
+  ) {
+    try {
+      await snap.request({
+        method: 'snap_updateInterface',
+        params: {
+          id,
+          ui: panel([
+            text(
+              'Getting you some testnet ETH from the Chainstack Faucet. This may take a few seconds.',
+            ),
+            spinner(),
+          ]),
+        },
+      });
+
+      const { apiKey, sendETHAddress } = await getApiKeyAndAddressFromState();
+      const response = await fetchChainStack(apiKey, sendETHAddress);
+      const responseJson = await response.json();
+
+      if (response.ok) {
+        await snap.request({
+          method: 'snap_updateInterface',
+          params: {
+            id,
+            ui: panel([
+              heading('Chainstack Snap'),
+              text(
+                // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                `The transaction was successful. You should receive ${responseJson.amountSent} SepoliaETH shortly. Check the transaction here - ${responseJson.transaction}`,
+              ),
+            ]),
+          },
+        });
+      } else {
+        await snap.request({
+          method: 'snap_updateInterface',
+          params: {
+            id,
+            ui: panel([
+              heading('Chainstack Snap'),
+              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+              text(`The transaction failed. ${responseJson?.message}`),
+            ]),
+          },
+        });
+      }
+    } catch (error) {
+      await snap.request({
+        method: 'snap_updateInterface',
+        params: {
+          id,
+          ui: panel([
+            heading('Chainstack Snap'),
+            text(
+              `An error occurred. Please try again later. ${
+                // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                (error as any)?.message
+              }`,
+            ),
+          ]),
+        },
+      });
+    }
   }
 };
 
@@ -94,66 +179,33 @@ export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
   switch (request.method) {
     case 'sendETH': {
       try {
-        const persistedData = await snap.request({
-          method: 'snap_manageState',
-          params: { operation: ManageStateOperation.GetState },
+        const { address } = request.params as { address: `0x${string}` };
+        const sendETHInterfaceId = await snap.request({
+          method: 'snap_createInterface',
+          params: {
+            ui: panel([
+              heading('Chainstack Snap'),
+              text(
+                'You are about to get some sepoliaETH from the Chainstack Faucet.',
+              ),
+              row('Account to top up:', addressComponent(address)),
+              button({ value: 'Send it', name: 'send-it' }),
+            ]),
+          },
         });
 
-        if (!persistedData) {
-          throw new Error('API key not found.');
-        }
-
-        const { apiKey } = persistedData as { apiKey: string };
-        const { address } = request.params as { address: string };
-
-        const response = await fetchChainStack(apiKey, address);
-
-        const responseJson = await response.json();
-
-        if (response.ok) {
-          return snap.request({
-            method: 'snap_dialog',
-            params: {
-              type: 'alert',
-              content: panel([
-                heading('Chainstack Snap'),
-                text(
-                  // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-                  `The transaction was successful. You should receive ${responseJson.amountSent} SepoliaETH shortly. Check the transaction here - ${responseJson.transaction}`,
-                ),
-              ]),
-            },
-          });
-        }
+        await patchState({ sendETHInterfaceId, sendETHAddress: address });
 
         return snap.request({
           method: 'snap_dialog',
           params: {
             type: 'alert',
-            content: panel([
-              heading('Chainstack Snap'),
-              // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-              text(`The transaction failed. ${responseJson?.message}`),
-            ]),
+            id: sendETHInterfaceId,
           },
         });
       } catch (error) {
-        console.error('sendETH error:', error);
-        return snap.request({
-          method: 'snap_dialog',
-          params: {
-            type: 'alert',
-            content: panel([
-              heading('Chainstack Snap'),
-              text(
-                `An error occurred. Please try again later. ${
-                  // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-                  (error as any)?.message
-                }`,
-              ),
-            ]),
-          },
-        });
+        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+        throw new Error(`Error sending ETH: ${(error as any)?.message}`);
       }
     }
     default:
